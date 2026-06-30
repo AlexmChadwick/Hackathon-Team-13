@@ -33,7 +33,7 @@ export const CARDS: Card[] = [
     highlight: '5% at Amazon & Whole Foods',
     store: 'Amazon',
     description:
-      'Perfect for frequent Amazon and Whole Foods shoppers. Prime members unlock top rewards instantly. Only the specific Amazon/Whole Foods spend gets the high rate — everything else earns the base rate.',
+      'Perfect for frequent Amazon and Whole Foods shoppers. Prime members unlock top rewards instantly. This PLCC can ONLY be used at Amazon & Whole Foods — you cannot use it at Walmart or for general spending. Rewards are 0 on any spend outside the exact store.',
   },
   {
     id: 'bestbuy',

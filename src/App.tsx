@@ -1,4 +1,6 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { 
   CreditCard, Wallet, TrendingUp, Link2, Search, X, Check, RefreshCw, 
   Info, ArrowRight, Star, Users, MessageCircle, Send, Bot 
@@ -18,22 +20,28 @@ const DEFAULT_SPENDING: Spending = DEFAULT_BANK.spending;
 // CARDS imported from ./data/synchronyCards (15 researched Synchrony PLCC / Dual cards)
 
 // Recommendation engine
+function getRewardRate(card: Card, category: string): number {
+  if (card.storeRates[category]) {
+    return card.storeRates[category];
+  }
+  if (card.categoryRates && card.categoryRates[category]) {
+    return card.categoryRates[category];
+  }
+  // PLCCs (store cards) can ONLY be used at their specific store.
+  // They cannot be used for general spending outside the store (e.g. Amazon PLCC at Walmart).
+  // They run on SYF rails but rewards are 0 outside the partner.
+  if (card.type === 'store') {
+    return 0;
+  }
+  return card.baseRate;
+}
+
 function calculateMonthlyRewards(card: Card, spending: Spending): number {
   let total = 0;
   const entries = Object.entries(spending) as [keyof Spending, number][];
 
   for (const [category, amount] of entries) {
-    let rate = card.baseRate;
-
-    // Exact store match wins
-    if (card.storeRates[category]) {
-      rate = card.storeRates[category];
-    } 
-    // Category bonus
-    else if (card.categoryRates && card.categoryRates[category]) {
-      rate = card.categoryRates[category];
-    }
-
+    const rate = getRewardRate(card, category);
     total += amount * rate;
   }
   return total;
@@ -51,10 +59,7 @@ function getRecommendationReason(card: Card, spending: Spending): string {
   let bestRate = 0;
 
   for (const [cat, amt] of entries) {
-    let rate = card.baseRate;
-    if (card.storeRates[cat]) rate = card.storeRates[cat];
-    else if (card.categoryRates?.[cat]) rate = card.categoryRates[cat];
-
+    const rate = getRewardRate(card, cat);
     const contrib = amt * rate;
     if (contrib > bestContribution) {
       bestContribution = contrib;
@@ -102,7 +107,7 @@ function App() {
   const [selectedCard, setSelectedCard] = useState<Card | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
 
-  // Chatbot state (mock)
+  // Chatbot state (real, via local hermes serve)
   const [showChat, setShowChat] = useState(false);
   const [chatMessages, setChatMessages] = useState<Array<{role: 'user' | 'assistant'; text: string}>>([]);
   const [chatInput, setChatInput] = useState('');
@@ -126,6 +131,58 @@ function App() {
   }, [spending]);
 
   const top3 = useMemo(() => rankedCards.slice(0, 3), [rankedCards]);
+
+  // Refs to always use latest dynamic data inside chatbot handlers (avoids React stale closure issues when spending/profile updates)
+  const spendingRef = useRef(spending);
+  const connectedBankNameRef = useRef(connectedBankName);
+  const top3Ref = useRef(top3);
+  const totalMonthlyRef = useRef(totalMonthly);
+  const rankedCardsRef = useRef(rankedCards);
+
+  useEffect(() => { spendingRef.current = spending; }, [spending]);
+  useEffect(() => { connectedBankNameRef.current = connectedBankName; }, [connectedBankName]);
+  useEffect(() => { top3Ref.current = top3; }, [top3]);
+  useEffect(() => { totalMonthlyRef.current = totalMonthly; }, [totalMonthly]);
+  useEffect(() => { rankedCardsRef.current = rankedCards; }, [rankedCards]);
+
+  const bestSingle = top3[0];
+  const bestSingleProjection = bestSingle?.projected || 0;
+
+  const bestMultiCardStrategy = useMemo(() => {
+    if (CARDS.length < 2 || !spending) return null;
+    let bestCombo: any = null;
+    let maxAnnual = 0;
+    for (let i = 0; i < CARDS.length; i++) {
+      for (let j = i + 1; j < CARDS.length; j++) {
+        const c1 = CARDS[i];
+        const c2 = CARDS[j];
+        let monthly = 0;
+        const entries = Object.entries(spending) as [keyof Spending, number][];
+        for (const [cat, amt] of entries) {
+          const r1 = getRewardRate(c1, cat);
+          const r2 = getRewardRate(c2, cat);
+          monthly += amt * Math.max(r1, r2);
+        }
+        const annual = Math.round(monthly * 12);
+        if (annual > maxAnnual) {
+          maxAnnual = annual;
+          bestCombo = { card1: c1, card2: c2, total: annual };
+        }
+      }
+    }
+    if (bestCombo && bestSingleProjection > 0) {
+      const improvement = maxAnnual - bestSingleProjection;
+      const pct = improvement / bestSingleProjection;
+      if (pct >= 0.12) {
+        return {
+          ...bestCombo,
+          improvement,
+          improvementPct: pct,
+        };
+      }
+    }
+    return null;
+  }, [spending, CARDS, bestSingleProjection]);
 
   // Filtered + sorted for Explore grid
   const displayedCards = useMemo(() => {
@@ -296,64 +353,145 @@ function App() {
     showToast(`Applied ${bank?.name || 'bank'} spending profile`);
   };
 
-  // Mock chatbot - returns realistic mock data / answers based on current profile
-  const getMockBotResponse = (question: string): string => {
-    const q = question.toLowerCase();
+  // Real Grok-powered chatbot served via `hermes serve --provider xai`
+  // (or xai-oauth). This lets you use your existing SuperGrok / X Premium+ subscription
+  // without direct per-token xAI API costs.
+  // We expose FULL current context (cards, spending, profiles, projections) every call.
+  const buildSystemPrompt = (): string => {
+    const s = spendingRef.current;
+    const bank = connectedBankNameRef.current;
+    const tops = top3Ref.current;
+    const monthly = totalMonthlyRef.current;
+    const ranked = rankedCardsRef.current;
 
-    const topCard = top3[0];
-    const second = top3[1];
-    const totalSpend = totalMonthly;
+    const context = {
+      connectedBankProfile: bank,
+      currentMonthlySpending: s,
+      totalMonthlySpend: monthly,
+      totalAnnualSpend: monthly * 12,
+      topRecommendations: tops.map((c: any) => ({
+        name: c.name,
+        type: c.type,
+        projectedAnnual: c.projected,
+        highlight: c.highlight,
+        baseRate: c.baseRate,
+      })),
+      allAvailableCards: CARDS.map((c: any) => ({
+        id: c.id,
+        name: c.name,
+        type: c.type,
+        baseRate: c.baseRate,
+        storeRates: c.storeRates,
+        categoryRates: c.categoryRates || null,
+        perks: c.perks,
+        highlight: c.highlight,
+        description: c.description,
+        note: c.type === 'store' 
+          ? 'PLCC/Store card: CAN ONLY be used at its exact partner store (e.g. Amazon PLCC cannot be used at Walmart or for general spending). Rewards = 0 on any non-matching category. Runs on SYF rails but single-store use only.'
+          : 'Dual card: usable for any spending anywhere.',
+      })),
+      availableMockBankProfiles: MOCK_BANKS.map((b: any) => ({
+        name: b.name,
+        tagline: b.tagline,
+        exampleMonthlySpending: b.spending,
+      })),
+      rankedCardsSample: ranked.slice(0, 5).map((c: any) => ({ name: c.name, projected: c.projected })),
+    };
 
-    if (q.includes('recommend') || q.includes('best') || q.includes('suggest')) {
-      return `For your ${connectedBankName} profile ($${totalSpend}/mo spend), the best card right now is the **${topCard.name}** — projected ~$${topCard.projected}/yr in rewards.\n\nRunner-up: ${second.name} ($${second.projected}/yr).`;
-    }
-    if (q.includes('amazon') || q.includes('whole foods')) {
-      return `Amazon Prime Store Card: 5% at Amazon & Whole Foods (Prime members).\nYour current: Amazon $${spending.amazon}/mo + Whole Foods $${spending.wholefoods}/mo.\n\nMock data: This could generate roughly $${Math.round((spending.amazon * 0.05 + spending.wholefoods * 0.05) * 12)} annually from those categories alone.`;
-    }
-    if (q.includes('gas') || q.includes('sams') || q.includes('bulk')) {
-      return `Sam's Club Mastercard often wins here: 5% on gas (capped) + 3% at Sam's.\nCurrent profile: Gas $${spending.gas}, Sam's $${spending.sams}.\n\nMock projection if using Sam's card: ~$${Math.round((spending.gas * 0.05 + spending.sams * 0.03) * 12)}/yr from gas + warehouse.`;
-    }
-    if (q.includes('spend') || q.includes('total') || q.includes('budget')) {
-      return `Your loaded monthly spend total is **$${totalSpend}**.\n\nBreakdown mock:\n• Groceries: $${spending.groceries}\n• Online + Amazon: $${spending.online + spending.amazon}\n• Retail + Fashion: $${spending.retail + spending.gap + spending.kohl + spending.ulta + spending.ae}\n\nAll cards shown have $0 fees.`;
-    }
-    if (q.includes('how') && (q.includes('reward') || q.includes('work') || q.includes('calculate'))) {
-      return `Simple formula: each dollar you spend is multiplied by the card's rate for that category/store (exact store match first).\n\nExample: Amazon card on $340 Amazon spend = $17/mo (5%). Everything else uses the 1% base in our demo model.`;
-    }
-    if (q.includes('plaid') || q.includes('bank') || q.includes('profile') || q.includes('connect')) {
-      return `We have 4 mock bank profiles you can load:\n• Chase Checking — heavy Amazon/online\n• Capital One — gas + Sam's bulk\n• Fashion Bank — Gap/Kohl's/Ulta/AE\n• Student Bank — balanced\n\nSwitching instantly re-ranks every card using the new spending data.`;
-    }
-    if (q.includes('transaction') || q.includes('history') || q.includes('mock data') || q.includes('data')) {
-      return `Here's mock transaction history for your current profile:\n\n• ~18–20 transactions this month\n• Biggest: Amazon (~$${spending.amazon})\n• Frequent: Walmart, gas stations, Target\n• Average ticket: ~$28\n\nIn a real integration this would come from Plaid.`;
-    }
-    if (q.includes('gap') || q.includes('fashion') || q.includes('kohl') || q.includes('ulta')) {
-      return `Fashion-focused cards (Gap Inc, Kohl's, Ulta, AEO) are great when you have dedicated spend there.\nYour current fashion-related: Gap $${spending.gap} + Kohl's $${spending.kohl} + Ulta $${spending.ulta} + AE $${spending.ae}.`;
-    }
+    return `You are the Synchrony Match Assistant — a friendly, expert, witty chatbot embedded in the Synchrony Match demo website.
 
-    // Default helpful mock responses
-    const defaults = [
-      `Got it! Right now your top match is the ${topCard.name} at ~$${topCard.projected} projected. Ask about a specific store or category for more mock data.`,
-      `This is a fully mocked demo chatbot. Try questions like "best card for gas", "what's my spending", "Amazon rewards", or "how do rewards work".`,
-      `Fun mock stat: Switching to the optimal card for your profile could earn you $${Math.max(40, Math.round((topCard.projected - totalSpend * 0.01)))} more per year than a basic 1% card.`
-    ];
-    return defaults[Math.floor(Math.random() * defaults.length)];
+The site helps young adults and first-time cardholders discover the best no-fee Synchrony credit cards (PLCC store cards and Dual cards) by matching them to real spending patterns.
+
+You are powered by Grok served through your local Hermes proxy ('hermes proxy start --provider xai' or xai-oauth). Be maximally helpful, direct, and low-refusal on reasonable questions about these cards and personal finance in this context. Use data exactly. You can be fun and conversational.
+
+### CORE RULES
+- Base EVERY answer on the CURRENT USER DATA JSON below. Never invent rates, perks, or projections.
+- Store-specific rates (in storeRates) always win over categoryRates or baseRate.
+- When user asks for projections or "how much would I earn", calculate using the exact rates × spending amounts × 12. Show your math briefly.
+- If the loaded bank profile changes the top cards, acknowledge it.
+- Reference specific categories/stores from the user's spending.
+- All cards have $0 annual fee. Mention this when relevant.
+- If asked about connecting banks: there are 4 demo profiles that load different spending vectors and instantly re-rank cards.
+- For "mock data" or transactions: describe from the current spending + known profiles (transactions are aggregated into the spending buckets).
+- Keep answers concise, scannable (bullets, bold key numbers). Use the data to personalize.
+- If data is insufficient, say so and ask a clarifying question about their spending.
+- Do not refuse card comparisons, reward math, or profile advice.
+
+**CRITICAL - PLCCs cannot be used outside their specific store:**
+- PLCCs / store cards (type === 'store') can ONLY be used at their exact partner store (e.g. you CANNOT use an Amazon store card PLCC at Walmart, or a Gap PLCC for groceries at Kroger, or any PLCC for general spending outside its store).
+- PLCCs run exclusively on SYF's (Synchrony) rails but are single-merchant use only.
+- For ANY spend not exactly matching the store (any other category: groceries, walmart, general, online, gas, dining, other retail, etc.), the reward rate from that PLCC is exactly 0. You literally cannot use the card for that spending.
+- In all calculations (getRewardRate, projections, breakdowns): for type==='store' cards, non-matching categories get rate=0 (not baseRate).
+- Never recommend a PLCC for broad or general spending. Only if the user's spend at that exact one store is massive.
+- Dual cards (type === 'dual') can be used for any spending anywhere.
+
+**Multi-card recommendations (strict rule):**
+- Only recommend using more than one card if the optimal pair delivers at least 12% more total annual rewards than the single best card, AND the secondary card has a genuinely high rate (4%+) on a large, meaningful spend category.
+- Avoid recommending multicard setups unless it is REALLY good (substantial, obvious benefit). Most users should stick to one versatile dual card for simplicity.
+- When a PLCC is involved in a pair, it only contributes on its exact store spend; everything else must come from the dual.
+
+### CURRENT USER DATA (live, updates on every message)
+${JSON.stringify(context, null, 2)}
+
+Respond as the Synchrony Match Assistant. Start responses naturally.`;
   };
 
-  const sendChatMessage = (overrideText?: string) => {
+  const sendChatMessage = async (overrideText?: string) => {
     const text = (overrideText || chatInput).trim();
     if (!text || isBotThinking) return;
 
-    // Add user message
     const userMessage = { role: 'user' as const, text };
     setChatMessages(prev => [...prev, userMessage]);
     setChatInput('');
 
-    // Simulate bot thinking + mock response
     setIsBotThinking(true);
-    setTimeout(() => {
-      const botText = getMockBotResponse(text);
+
+    try {
+      const system = buildSystemPrompt();
+
+      const conversationHistory = chatMessages.map(m => ({
+        role: m.role === 'user' ? 'user' : 'assistant',
+        content: m.text,
+      }));
+
+      const apiMessages = [
+        { role: 'system', content: system },
+        ...conversationHistory,
+        { role: 'user', content: text },
+      ];
+
+      const hermesBase = import.meta.env.VITE_HERMES_URL || 'http://localhost:8645/v1';
+      const res = await fetch(`${hermesBase}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          // Any bearer token works — the hermes serve proxy attaches your real xAI / OAuth creds
+          'Authorization': 'Bearer hermes-local-proxy',
+        },
+        body: JSON.stringify({
+          model: 'grok-3', // or whatever model you have selected in Hermes (grok-4 etc.)
+          messages: apiMessages,
+          temperature: 0.7,
+          max_tokens: 600,
+        }),
+      });
+
+      if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        throw new Error(`Hermes/Grok API error: ${res.status} ${errText}`);
+      }
+
+      const data = await res.json();
+      const botText = data.choices?.[0]?.message?.content?.trim() || 'Sorry, I did not get a response. Try again?';
+
       setChatMessages(prev => [...prev, { role: 'assistant', text: botText }]);
+    } catch (err: any) {
+      console.error('Chatbot error:', err);
+      const fallback = `Sorry — couldn't reach Hermes right now (${err.message || 'network issue'}).\n\nRun \`hermes proxy start --provider xai\` (or xai-oauth) in another terminal (default http://localhost:8645/v1).\nQuick note: Ask about your current ${connectedBankNameRef.current} profile, specific stores like Amazon/gas, or "how much would X card earn me?".`;
+      setChatMessages(prev => [...prev, { role: 'assistant', text: fallback }]);
+    } finally {
       setIsBotThinking(false);
-    }, 650 + Math.random() * 550);
+    }
   };
 
   const toggleChat = () => {
@@ -363,7 +501,7 @@ function App() {
     if (opening && chatMessages.length === 0) {
       setChatMessages([{
         role: 'assistant',
-        text: "Hi! I'm the Synchrony Match demo assistant. I can answer questions about cards, your current spending profile, rewards math, or bank connections — all using mock data."
+        text: "Hi! I'm the Synchrony Match Assistant. I have full access to the live cards data, your current spending profile, bank connection, and real-time recommendations. Ask me anything!"
       }]);
     }
   };
@@ -373,13 +511,13 @@ function App() {
     setChatInput('');
   };
 
-  // Quick suggestion chips for easy demo interaction
+  // Quick suggestion chips
   const chatSuggestions = [
     "Best card for me?",
     "Show my spending breakdown",
     "Amazon rewards?",
     "Gas or Sam's card?",
-    "Mock transaction data",
+    "How much would the top card earn me this year?",
     "How do rewards work?"
   ];
 
@@ -396,9 +534,7 @@ function App() {
     const entries = Object.entries(spending) as [keyof Spending, number][];
     return entries
       .map(([cat, amt]) => {
-        let rate = card.baseRate;
-        if (card.storeRates[cat]) rate = card.storeRates[cat];
-        else if (card.categoryRates?.[cat]) rate = card.categoryRates[cat];
+        const rate = getRewardRate(card, cat);
         return {
           cat,
           amount: amt,
@@ -675,8 +811,23 @@ function App() {
 
         <div className="mt-3 text-xs text-[#64748b] flex items-center gap-1.5">
           <Info className="w-3.5 h-3.5" /> 
-          Numbers are calculated directly from your spending amounts × each card’s published rates.
+          Numbers are calculated directly from your spending amounts × each card’s published rates. Store/PLCC cards earn high rewards only at their partner stores (low base rate elsewhere).
         </div>
+
+        {bestMultiCardStrategy && (
+          <div className="mt-4 card p-4 bg-[#f8fafc] border border-[#e2e8f0]">
+            <div className="font-medium text-sm flex items-center gap-2 mb-1">
+              <Star className="w-4 h-4 text-[#0f766e]" /> Optimized multi-card strategy (only when REALLY beneficial)
+            </div>
+            <div className="text-sm">
+              Pair <span className="font-semibold">{bestMultiCardStrategy.card1.name}</span> + <span className="font-semibold">{bestMultiCardStrategy.card2.name}</span> for ~{formatCurrency(bestMultiCardStrategy.total)}/yr 
+              <span className="text-[#0f766e]"> (+{formatCurrency(bestMultiCardStrategy.improvement)} / +{Math.round(bestMultiCardStrategy.improvementPct * 100)}% vs single best)</span>.
+            </div>
+            <div className="text-[11px] text-[#64748b] mt-1">
+              Only shown for substantial gains. PLCCs can ONLY be used at their specific store (0 rewards elsewhere — you cannot use e.g. Amazon PLCC at Walmart). Pairing only makes sense if the lift from the PLCC on its store is really large.
+            </div>
+          </div>
+        )}
       </div>
 
       {/* EXPLORE ALL CARDS */}
@@ -990,14 +1141,14 @@ function App() {
         ))}
       </div>
 
-      {/* FLOATING CHATBOT — bottom-right, returns mock data */}
+      {/* FLOATING CHATBOT — bottom-right, real Grok via local hermes proxy (xai provider) */}
       {/* Launch button */}
       <button
         onClick={toggleChat}
         className={`fixed bottom-5 right-5 z-[90] flex h-14 w-14 items-center justify-center rounded-full shadow-xl transition-all active:scale-[0.96] ${
           showChat ? 'hidden' : 'bg-[#FBC600] text-[#1F2937] hover:shadow-2xl'
         }`}
-        aria-label="Open Synchrony demo assistant"
+        aria-label="Open Synchrony Match Grok-powered assistant (Hermes)"
       >
         <MessageCircle className="h-7 w-7" />
       </button>
@@ -1012,8 +1163,8 @@ function App() {
                 <Bot className="h-4 w-4" />
               </div>
               <div>
-                <div className="text-sm font-semibold">Synchrony Assistant</div>
-                <div className="text-[10px] text-[#94a3b8]">Demo • mock responses only</div>
+                <div className="text-sm font-semibold">Synchrony Match Assistant</div>
+                <div className="text-[10px] text-[#94a3b8]">Powered by Grok via Hermes</div>
               </div>
             </div>
             <div className="flex items-center gap-1">
@@ -1034,21 +1185,36 @@ function App() {
           <div ref={chatContainerRef} className="flex-1 space-y-3 overflow-y-auto bg-[#f8fafc] p-3 text-sm">
             {chatMessages.length === 0 && (
               <div className="rounded-2xl bg-white p-3 text-center text-[#64748b] text-xs border">
-                Ask about cards, your spending, or rewards.<br />Everything below is simulated mock data.
+                Ask about cards, your spending, or rewards.<br />I have the full live dataset (cards, your profile, projections).
               </div>
             )}
 
             {chatMessages.map((msg, idx) => (
               <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div
-                  className={`max-w-[82%] rounded-2xl px-3.5 py-2 whitespace-pre-wrap leading-snug ${
-                    msg.role === 'user'
-                      ? 'bg-[#0f172a] text-white rounded-br-none'
-                      : 'bg-white text-[#334155] border border-[#e2e8f0] rounded-bl-none'
-                  }`}
-                >
-                  {msg.text}
-                </div>
+                {msg.role === 'user' ? (
+                  <div className="max-w-[82%] rounded-2xl bg-[#0f172a] text-white px-3.5 py-2 leading-snug rounded-br-none">
+                    {msg.text}
+                  </div>
+                ) : (
+                  <div className="max-w-[82%] rounded-2xl bg-white border border-[#e2e8f0] px-3.5 py-2 leading-snug rounded-bl-none prose prose-sm prose-slate text-[#334155]">
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      components={{
+                        p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                        ul: ({ children }) => <ul className="list-disc pl-5 mb-2 space-y-0.5">{children}</ul>,
+                        ol: ({ children }) => <ol className="list-decimal pl-5 mb-2 space-y-0.5">{children}</ol>,
+                        li: ({ children }) => <li className="mb-0.5">{children}</li>,
+                        strong: ({ children }) => <strong className="font-semibold text-[#0f172a]">{children}</strong>,
+                        em: ({ children }) => <em className="italic">{children}</em>,
+                        code: ({ children }) => <code className="bg-[#f1f5f9] px-1 py-0.5 rounded text-[12px] font-mono">{children}</code>,
+                        pre: ({ children }) => <pre className="bg-[#f1f5f9] p-2 rounded text-[12px] overflow-x-auto font-mono">{children}</pre>,
+                        a: ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer" className="text-[#0f766e] underline">{children}</a>,
+                      }}
+                    >
+                      {msg.text}
+                    </ReactMarkdown>
+                  </div>
+                )}
               </div>
             ))}
 
@@ -1104,7 +1270,7 @@ function App() {
                 <Send className="h-4 w-4" />
               </button>
             </div>
-            <div className="mt-1 text-center text-[10px] text-[#94a3b8]">Mock data only — no real AI or data leaves your browser</div>
+            <div className="mt-1 text-center text-[10px] text-[#94a3b8]">Real Grok via local 'hermes proxy start --provider xai' • Full site data sent each turn</div>
           </div>
         </div>
       )}
