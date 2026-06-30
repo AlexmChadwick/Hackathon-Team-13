@@ -3,23 +3,11 @@ import {
   CreditCard, Wallet, TrendingUp, Link2, Search, X, Check, RefreshCw, 
   Info, ArrowRight, Star, Users 
 } from 'lucide-react';
+import { CARDS, type Card } from './data/synchronyCards';
 
-// Types (exported for engine consumers)
-export interface Card {
-  id: string;
-  name: string;
-  type: 'store' | 'dual';
-  annualFee: number;
-  baseRate: number;
-  storeRates: Record<string, number>;
-  categoryRates?: Record<string, number>;
-  perks: string[];
-  highlight: string;
-  store?: string;
-  description: string;
-}
+// Types (Card imported from ./data/synchronyCards)
 
-export interface Spending {
+interface Spending {
   groceries: number;
   gas: number;
   dining: number;
@@ -35,11 +23,9 @@ export interface Spending {
   gap: number;
   kohl: number;
   ulta: number;
-}
-
-export interface RewardProjection {
-  monthly: number;
-  annual: number;
+  jcpenney: number;
+  ashley: number;
+  ae: number;
 }
 
 type Toast = {
@@ -47,7 +33,7 @@ type Toast = {
   message: string;
 };
 
-export const DEFAULT_SPENDING: Spending = {
+const DEFAULT_SPENDING: Spending = {
   groceries: 320,
   gas: 110,
   dining: 175,
@@ -63,267 +49,81 @@ export const DEFAULT_SPENDING: Spending = {
   gap: 30,
   kohl: 25,
   ulta: 20,
+  jcpenney: 20,
+  ashley: 25,
+  ae: 30,
 };
 
-// 10 realistic Synchrony PLCC / Dual cards (no annual fees, great for building credit)
-export const CARDS: Card[] = [
-  {
-    id: 'amazon',
-    name: 'Amazon Store Card',
-    type: 'store',
-    annualFee: 0,
-    baseRate: 0.01,
-    storeRates: { amazon: 0.05 },
-    perks: ['5% back at Amazon (Prime members)', 'No annual fee', 'Easy instant financing options'],
-    highlight: '5% at Amazon',
-    store: 'Amazon',
-    description: 'Perfect for frequent Amazon shoppers. Prime members unlock the top rate instantly.',
-  },
-  {
-    id: 'bestbuy',
-    name: 'Best Buy Credit Card',
-    type: 'store',
-    annualFee: 0,
-    baseRate: 0.01,
-    storeRates: { bestbuy: 0.05 },
-    perks: ['5% back on all Best Buy purchases', 'My Best Buy rewards integration', '0% promo financing available'],
-    highlight: '5% at Best Buy',
-    store: 'Best Buy',
-    description: 'Ideal for tech and electronics buyers. Great for building credit with on-time payments.',
-  },
-  {
-    id: 'walmart',
-    name: 'Walmart Rewards Card',
-    type: 'store',
-    annualFee: 0,
-    baseRate: 0.01,
-    storeRates: { walmart: 0.05 },
-    perks: ['5% back at Walmart & Walmart.com', 'Walmart+ benefits integration', 'No annual fee ever'],
-    highlight: '5% at Walmart',
-    store: 'Walmart',
-    description: 'Excellent everyday essential card. High rate on groceries, household & general shopping.',
-  },
-  {
-    id: 'sams',
-    name: 'Sam\'s Club Credit Card',
-    type: 'store',
-    annualFee: 0,
-    baseRate: 0.01,
-    storeRates: { sams: 0.03 },
-    categoryRates: { gas: 0.02 },
-    perks: ['3% at Sam\'s Club', '2% on gas (up to $6k/yr)', 'Cash rewards + travel redemptions'],
-    highlight: '3% at Sam\'s + gas bonus',
-    store: 'Sam\'s Club',
-    description: 'Great for bulk buyers and drivers. Strong rewards on warehouse + everyday fuel.',
-  },
-  {
-    id: 'lowes',
-    name: 'Lowe\'s Advantage Card',
-    type: 'store',
-    annualFee: 0,
-    baseRate: 0.01,
-    storeRates: { lowes: 0.05 },
-    perks: ['5% off eligible purchases at Lowe\'s', 'Special financing offers', 'No annual fee'],
-    highlight: '5% at Lowe\'s',
-    store: 'Lowe\'s',
-    description: 'Best for home improvement. Every project earns serious cash back at the store you love.',
-  },
-  {
-    id: 'verizon',
-    name: 'Verizon Visa Card',
-    type: 'dual',
-    annualFee: 0,
-    baseRate: 0.01,
-    storeRates: { verizon: 0.04 },
-    categoryRates: { gas: 0.02, dining: 0.02 },
-    perks: ['4% back on Verizon purchases', '2% at gas stations & restaurants', 'Auto-pay bill credits'],
-    highlight: '4% Verizon + 2% gas/dining',
-    store: 'Verizon',
-    description: 'A flexible dual card. Excellent if you pay a Verizon bill and want everyday category bonuses.',
-  },
-  {
-    id: 'premier',
-    name: 'Synchrony Premier Card',
-    type: 'dual',
-    annualFee: 0,
-    baseRate: 0.02,
-    storeRates: {},
-    perks: ['2% cash back on everything', 'No foreign transaction fees', 'Premium concierge & travel benefits'],
-    highlight: '2% everywhere flat',
-    description: 'The simple powerhouse. Best flat-rate card with no categories to track. Perfect for beginners.',
-  },
-  {
-    id: 'gap',
-    name: 'Gap Inc. Credit Card',
-    type: 'store',
-    annualFee: 0,
-    baseRate: 0.01,
-    storeRates: { gap: 0.04, retail: 0.02 },
-    perks: ['4% at Gap, Old Navy, Banana Republic, Athleta', 'Extra 10% off first purchase', 'No annual fee'],
-    highlight: '4% at Gap brands',
-    store: 'Gap',
-    description: 'Fashion favorite. Earn the highest rates on your favorite everyday and weekend style brands.',
-  },
-  {
-    id: 'kohls',
-    name: 'Kohl\'s Charge Card',
-    type: 'store',
-    annualFee: 0,
-    baseRate: 0.01,
-    storeRates: { kohl: 0.05 },
-    perks: ['5% back every day at Kohl\'s', 'Special birthday rewards', 'Easy approval for first cards'],
-    highlight: '5% at Kohl\'s',
-    store: 'Kohl\'s',
-    description: 'Wonderful starter card. High everyday rate at Kohl\'s + simple rewards for new cardholders.',
-  },
-  {
-    id: 'ulta',
-    name: 'Ulta Beauty Credit Card',
-    type: 'store',
-    annualFee: 0,
-    baseRate: 0.01,
-    storeRates: { ulta: 0.05 },
-    perks: ['5% back at Ulta Beauty', 'Platinum status boost opportunities', 'Beauty insider points synergy'],
-    highlight: '5% at Ulta Beauty',
-    store: 'Ulta',
-    description: 'Beauty lovers rejoice. Highest rewards on all things beauty, skincare, and haircare.',
-  },
-];
+// CARDS imported from ./data/synchronyCards (15 researched Synchrony PLCC / Dual cards)
 
-// =====================
-// RECOMMENDATION ENGINE (robust + exportable)
-// =====================
+// Recommendation engine
+function calculateMonthlyRewards(card: Card, spending: Spending): number {
+  let total = 0;
+  const entries = Object.entries(spending) as [keyof Spending, number][];
 
-// Internal: sanitize inputs for zero/NaN/negative and high spend safety
-function sanitizeSpending(spending: Spending): Spending {
-  const result = {} as Spending;
-  (Object.keys(spending) as (keyof Spending)[]).forEach((key) => {
-    const raw = spending[key];
-    const val = Number(raw);
-    result[key] = Math.max(0, isFinite(val) ? Math.round(val) : 0);
-  });
-  return result;
-}
+  for (const [category, amount] of entries) {
+    let rate = card.baseRate;
 
-// Internal: single source of truth for rate lookup (store-specific wins, then category fallback, then base)
-function getRate(card: Card, category: keyof Spending): number {
-  // Store-specific rates take priority (exact key match for stores like amazon, gap, etc.)
-  if (category in card.storeRates) {
-    return card.storeRates[category];
+    // Exact store match wins
+    if (card.storeRates[category]) {
+      rate = card.storeRates[category];
+    } 
+    // Category bonus
+    else if (card.categoryRates && card.categoryRates[category]) {
+      rate = card.categoryRates[category];
+    }
+
+    total += amount * rate;
   }
-  // Category fallbacks (e.g. gas, dining on dual cards)
-  if (card.categoryRates && category in card.categoryRates) {
-    return card.categoryRates[category];
-  }
-  return card.baseRate;
+  return total;
 }
 
-// Internal: max rate a card offers (used for tie-breakers and high-rate filters)
-function getMaxRate(card: Card): number {
-  const storeVals = Object.values(card.storeRates);
-  const catVals = card.categoryRates ? Object.values(card.categoryRates) : [];
-  return Math.max(card.baseRate, ...storeVals, ...catVals);
+function calculateAnnualRewards(card: Card, spending: Spending): number {
+  return Math.round(calculateMonthlyRewards(card, spending) * 12);
 }
 
-// Core calculation: accurate monthly + rounded annual projection
-// Handles zero spend (returns 0s), high spend (safe math), invalid inputs (sanitized)
-export function calculateRewards(card: Card, spending: Spending): RewardProjection {
-  const clean = sanitizeSpending(spending);
-  let monthly = 0;
-
-  (Object.entries(clean) as [keyof Spending, number][]).forEach(([category, amount]) => {
-    const rate = getRate(card, category);
-    monthly += amount * rate;
-  });
-
-  // Round only the annual projection; keep monthly precise for breakdowns
-  const annual = Math.round(monthly * 12);
-  return { monthly, annual };
-}
-
-// Generate smart, personalized reason text
-// Enhanced for expanded cards, store rates, category fallbacks, zero/high spend cases
-export function getRecommendationReason(card: Card, spending: Spending): string {
-  const clean = sanitizeSpending(spending);
-  const totalMonthlySpend = Object.values(clean).reduce((sum, v) => sum + v, 0);
-
-  if (totalMonthlySpend === 0) {
-    // Edge case: zero spend
-    return 'No spend yet — rates apply instantly on your first purchases. Premier offers simple 2% everywhere.';
-  }
-
-  let bestCategory: keyof Spending | '' = '';
+// Generate smart reason text
+function getRecommendationReason(card: Card, spending: Spending): string {
+  const entries = Object.entries(spending) as [keyof Spending, number][];
+  let bestCategory = '';
   let bestContribution = 0;
   let bestRate = 0;
 
-  (Object.entries(clean) as [keyof Spending, number][]).forEach(([cat, amt]) => {
-    if (amt <= 0) return;
-    const rate = getRate(card, cat);
+  for (const [cat, amt] of entries) {
+    let rate = card.baseRate;
+    if (card.storeRates[cat]) rate = card.storeRates[cat];
+    else if (card.categoryRates?.[cat]) rate = card.categoryRates[cat];
+
     const contrib = amt * rate;
     if (contrib > bestContribution) {
       bestContribution = contrib;
       bestCategory = cat;
       bestRate = rate;
     }
-  });
+  }
 
   const catLabels: Record<string, string> = {
     amazon: 'Amazon', bestbuy: 'Best Buy', walmart: 'Walmart', sams: "Sam's Club",
     lowes: "Lowe's", verizon: 'Verizon', gap: 'Gap/Old Navy', kohl: "Kohl's", ulta: 'Ulta Beauty',
-    groceries: 'groceries', gas: 'gas', dining: 'dining out', online: 'online shopping',
+    jcpenney: 'JCPenney', ashley: 'Ashley Furniture', ae: 'American Eagle',
+    groceries: 'groceries', gas: 'gas', dining: 'dining out', online: 'online shopping', 
     retail: 'retail', general: 'everyday purchases',
   };
 
-  const label = bestCategory ? (catLabels[bestCategory] || bestCategory) : 'your spending';
-  const spendAmt = bestCategory ? clean[bestCategory] : 0;
+  const label = catLabels[bestCategory] || 'your spending';
   const annualFromTop = Math.round(bestContribution * 12);
 
-  // Special handling for premier (flat-rate) even on high contribs
-  if (card.id === 'premier') {
-    const flatAnnual = Math.round(totalMonthlySpend * 0.02 * 12);
-    return `Simple 2% flat rate on all $${totalMonthlySpend}/mo adds up to ~$${flatAnnual}/yr — no categories to track.`;
-  }
-
   if (bestRate >= 0.04) {
-    return `Earn ${Math.round(bestRate * 100)}% on your $${spendAmt}/mo at ${label} → ~$${annualFromTop}/yr`;
+    return `Earn ${Math.round(bestRate * 100)}% on your $${spending[bestCategory as keyof Spending]}/mo at ${label} → ~$${annualFromTop}/yr`;
   }
-  if (bestRate >= 0.03) {
-    return `Strong ${Math.round(bestRate * 100)}% rate on ${label} ($${spendAmt}/mo) delivers ~$${annualFromTop}/yr.`;
+  if (card.id === 'premier') {
+    return `Simple 2% flat rate on all spending adds up fast — no categories needed.`;
   }
-  if (bestContribution > 0) {
-    return `Good match on ${label} (${Math.round(bestRate * 100)}%) contributing ~$${annualFromTop}/yr.`;
-  }
-  return `Base ${Math.round(card.baseRate * 100)}% rate applies across your spending profile.`;
+  return `Strong match on ${label} (${Math.round(bestRate * 100)}%) contributing ~$${annualFromTop}/year.`;
 }
 
-// Get top recommendations — main exportable engine entrypoint
-// Returns cards sorted by projected annual (desc), with attached accurate projections + smart reasons.
-// Handles expanded list, all rates, edges.
-export function getTopRecommendations(
-  spending: Spending,
-  cards: Card[] = CARDS
-): Array<Card & { projected: number; monthly: number; reason: string }> {
-  const cleanSpend = sanitizeSpending(spending);
-
-  const scored = cards.map((card) => {
-    const proj = calculateRewards(card, cleanSpend);
-    const reason = getRecommendationReason(card, cleanSpend);
-    return {
-      ...card,
-      projected: proj.annual,
-      monthly: proj.monthly,
-      reason,
-    };
-  });
-
-  // Robust sort: highest projected, then highest max rate (for ties), then alpha
-  return scored.sort((a, b) => {
-    if (b.projected !== a.projected) return b.projected - a.projected;
-    const maxA = getMaxRate(a);
-    const maxB = getMaxRate(b);
-    if (maxB !== maxA) return maxB - maxA;
-    return a.name.localeCompare(b.name);
-  });
+function getCardProjected(card: Card, spending: Spending) {
+  return calculateAnnualRewards(card, spending);
 }
 
 // Main App
@@ -347,8 +147,12 @@ function App() {
   const totalAnnualSpend = totalMonthly * 12;
 
   const rankedCards = useMemo(() => {
-    // Use the exportable engine for accurate projections + personalized reasons on expanded list
-    return getTopRecommendations(spending);
+    return [...CARDS]
+      .map((card) => ({
+        ...card,
+        projected: getCardProjected(card, spending),
+      }))
+      .sort((a, b) => b.projected - a.projected);
   }, [spending]);
 
   const top3 = useMemo(() => rankedCards.slice(0, 3), [rankedCards]);
@@ -372,8 +176,7 @@ function App() {
     if (filter === 'store') result = result.filter((c) => c.type === 'store');
     if (filter === 'dual') result = result.filter((c) => c.type === 'dual');
     if (filter === 'highrate') {
-      // Use engine helper for max rate (covers store + category fallback rates + base)
-      result = result.filter((c) => getMaxRate(c) >= 0.04);
+      result = result.filter((c) => Object.values(c.storeRates).some((r) => r >= 0.04) || c.baseRate >= 0.02);
     }
 
     // Sort
@@ -381,8 +184,9 @@ function App() {
       result.sort((a, b) => a.name.localeCompare(b.name));
     } else if (sortMode === 'bonus') {
       result.sort((a, b) => {
-        // Use engine getMaxRate for accurate highest rate (incl category fallbacks)
-        return getMaxRate(b) - getMaxRate(a);
+        const maxA = Math.max(a.baseRate, ...Object.values(a.storeRates), ...(a.categoryRates ? Object.values(a.categoryRates) : []));
+        const maxB = Math.max(b.baseRate, ...Object.values(b.storeRates), ...(b.categoryRates ? Object.values(b.categoryRates) : []));
+        return maxB - maxA;
       });
     }
     // recommended = already sorted by projected
@@ -405,6 +209,7 @@ function App() {
     const catNameMap: Record<string, string> = {
       groceries: 'groceries', gas: 'gas', dining: 'dining', online: 'online shopping',
       retail: 'retail', amazon: 'Amazon', bestbuy: 'Best Buy', walmart: 'Walmart',
+      jcpenney: 'JCPenney', ashley: 'Ashley', ae: 'AEO',
     };
     const friendlyCat = catNameMap[topCat] || 'everyday purchases';
 
@@ -454,13 +259,14 @@ function App() {
   const applyPreset = (preset: 'balanced' | 'online' | 'essentials' | 'minimal') => {
     let newSpending: Spending;
     if (preset === 'online') {
-      newSpending = { ...DEFAULT_SPENDING, amazon: 280, online: 310, bestbuy: 90, gap: 55, ulta: 40, groceries: 240, dining: 130 };
+      newSpending = { ...DEFAULT_SPENDING, amazon: 280, online: 310, bestbuy: 90, gap: 55, ulta: 40, groceries: 240, dining: 130, ae: 45 };
     } else if (preset === 'essentials') {
       newSpending = { ...DEFAULT_SPENDING, groceries: 420, walmart: 120, gas: 160, sams: 95, dining: 110 };
     } else if (preset === 'minimal') {
       newSpending = {
         groceries: 200, gas: 70, dining: 90, online: 120, retail: 80, general: 55,
         amazon: 70, bestbuy: 25, walmart: 55, sams: 25, lowes: 15, verizon: 35, gap: 15, kohl: 15, ulta: 10,
+        jcpenney: 10, ashley: 15, ae: 15,
       };
     } else {
       newSpending = { ...DEFAULT_SPENDING };
@@ -508,19 +314,19 @@ function App() {
 
   const closeCardDetail = () => setSelectedCard(null);
 
-  // Compute breakdown for modal — reuses engine getRate for consistency with calculateRewards / category fallbacks / store rates
+  // Compute breakdown for modal
   const getBreakdown = (card: Card) => {
-    const clean = sanitizeSpending(spending); // ensure accuracy for edge cases
-    const entries = Object.entries(clean) as [keyof Spending, number][];
+    const entries = Object.entries(spending) as [keyof Spending, number][];
     return entries
       .map(([cat, amt]) => {
-        const rate = getRate(card, cat);
-        const monthlyPrecise = amt * rate;
+        let rate = card.baseRate;
+        if (card.storeRates[cat]) rate = card.storeRates[cat];
+        else if (card.categoryRates?.[cat]) rate = card.categoryRates[cat];
         return {
           cat,
           amount: amt,
           rate,
-          monthly: Math.round(monthlyPrecise), // round for display only
+          monthly: Math.round(amt * rate),
         };
       })
       .filter((r) => r.monthly > 0)
@@ -567,7 +373,7 @@ function App() {
             Find the card that<br />actually rewards you.
           </h1>
           <p className="max-w-xl mx-auto text-xl text-[#475569] mb-8">
-            Connect how you spend. Get instant, personalized recommendations from 10 real Synchrony cards.
+            Connect how you spend. Get instant, personalized recommendations from 15 researched Synchrony cards.
           </p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <button onClick={openPlaid} className="btn btn-primary text-base px-7 py-3">
@@ -712,6 +518,7 @@ function App() {
                     ['amazon', 'Amazon'], ['bestbuy', 'Best Buy'], ['walmart', 'Walmart'],
                     ['sams', "Sam's"], ['lowes', "Lowe's"], ['verizon', 'Verizon'],
                     ['gap', 'Gap/OldNavy'], ['kohl', "Kohl's"], ['ulta', 'Ulta'],
+                    ['jcpenney', 'JCPenney'], ['ashley', 'Ashley'], ['ae', 'AEO'],
                   ] as const
                 ).map(([key, label]) => (
                   <div key={key} className="spending-row flex items-center gap-2">
@@ -754,8 +561,7 @@ function App() {
 
         <div className="grid md:grid-cols-3 gap-4">
           {top3.map((card, index) => {
-            // Prefer engine-provided smart reason (with zero/high edge handling + personalization)
-            const reason = (card as any).reason || getRecommendationReason(card, spending);
+            const reason = getRecommendationReason(card, spending);
             const isTop = index === 0;
             return (
               <div key={card.id} className={`card p-5 flex flex-col ${isTop ? 'ring-1 ring-[#0f766e]/70' : ''}`}>
@@ -1046,7 +852,7 @@ function App() {
               <div className="mt-5 rounded-2xl bg-[#f8fafc] px-4 py-3">
                 <div className="uppercase text-[10px] tracking-widest text-[#64748b] mb-1">Projected for you this year</div>
                 <div className="text-4xl font-semibold tabular-nums tracking-[-1.5px] text-[#0f766e]">
-                  {formatCurrency(calculateRewards(selectedCard, spending).annual)}
+                  {formatCurrency(getCardProjected(selectedCard, spending))}
                 </div>
               </div>
             </div>
