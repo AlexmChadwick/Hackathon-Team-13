@@ -22,18 +22,18 @@ export const CARDS: Card[] = [
     name: 'Amazon Prime Store Card',
     type: 'store',
     annualFee: 0,
-    baseRate: 0.03,
-    storeRates: { amazon: 0.05 },
+    baseRate: 0.01,
+    storeRates: { amazon: 0.05, wholefoods: 0.05 },
     perks: [
       '5% back at Amazon & Whole Foods (Prime members)',
       '3% back at Amazon/Whole Foods (non-Prime)',
       'Easy 0% promo financing options',
       'No annual fee — rewards stay yours',
     ],
-    highlight: '5% at Amazon (Prime)',
+    highlight: '5% at Amazon & Whole Foods',
     store: 'Amazon',
     description:
-      'Perfect for frequent Amazon and Whole Foods shoppers. Prime members unlock top rewards instantly. Excellent starter card that helps young adults build credit with on-time payments.',
+      'Perfect for frequent Amazon and Whole Foods shoppers. Prime members unlock top rewards instantly. Only the specific Amazon/Whole Foods spend gets the high rate — everything else earns the base rate.',
   },
   {
     id: 'bestbuy',

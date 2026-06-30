@@ -1,58 +1,19 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { 
   CreditCard, Wallet, TrendingUp, Link2, Search, X, Check, RefreshCw, 
-  Info, ArrowRight, Star, Users 
+  Info, ArrowRight, Star, Users, MessageCircle, Send, Bot 
 } from 'lucide-react';
 import { CARDS, type Card } from './data/synchronyCards';
+import { MOCK_BANKS, DEFAULT_BANK, getBankById, deriveSpendingFromTransactions, getSampleMerchants, type Spending } from './data/mockBanks';
 
-// Types (Card imported from ./data/synchronyCards)
-
-interface Spending {
-  groceries: number;
-  gas: number;
-  dining: number;
-  online: number;
-  retail: number;
-  general: number;
-  amazon: number;
-  bestbuy: number;
-  walmart: number;
-  sams: number;
-  lowes: number;
-  verizon: number;
-  gap: number;
-  kohl: number;
-  ulta: number;
-  jcpenney: number;
-  ashley: number;
-  ae: number;
-}
+// Types (Card imported from ./data/synchronyCards; Spending from mockBanks)
 
 type Toast = {
   id: number;
   message: string;
 };
 
-const DEFAULT_SPENDING: Spending = {
-  groceries: 320,
-  gas: 110,
-  dining: 175,
-  online: 240,
-  retail: 195,
-  general: 85,
-  amazon: 165,
-  bestbuy: 55,
-  walmart: 70,
-  sams: 55,
-  lowes: 35,
-  verizon: 40,
-  gap: 30,
-  kohl: 25,
-  ulta: 20,
-  jcpenney: 20,
-  ashley: 25,
-  ae: 30,
-};
+const DEFAULT_SPENDING: Spending = DEFAULT_BANK.spending;
 
 // CARDS imported from ./data/synchronyCards (15 researched Synchrony PLCC / Dual cards)
 
@@ -105,7 +66,7 @@ function getRecommendationReason(card: Card, spending: Spending): string {
   const catLabels: Record<string, string> = {
     amazon: 'Amazon', bestbuy: 'Best Buy', walmart: 'Walmart', sams: "Sam's Club",
     lowes: "Lowe's", verizon: 'Verizon', gap: 'Gap/Old Navy', kohl: "Kohl's", ulta: 'Ulta Beauty',
-    jcpenney: 'JCPenney', ashley: 'Ashley Furniture', ae: 'American Eagle',
+    jcpenney: 'JCPenney', ashley: 'Ashley Furniture', ae: 'American Eagle', wholefoods: 'Whole Foods',
     groceries: 'groceries', gas: 'gas', dining: 'dining out', online: 'online shopping', 
     retail: 'retail', general: 'everyday purchases',
   };
@@ -136,8 +97,17 @@ function App() {
   const [showPlaidModal, setShowPlaidModal] = useState(false);
   const [plaidStep, setPlaidStep] = useState<'select' | 'connecting' | 'success'>('select');
   const [selectedBank, setSelectedBank] = useState('');
+  const [selectedBankId, setSelectedBankId] = useState('');
+  const [connectedBankName, setConnectedBankName] = useState<string>(DEFAULT_BANK.name);
   const [selectedCard, setSelectedCard] = useState<Card | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
+
+  // Chatbot state (mock)
+  const [showChat, setShowChat] = useState(false);
+  const [chatMessages, setChatMessages] = useState<Array<{role: 'user' | 'assistant'; text: string}>>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [isBotThinking, setIsBotThinking] = useState(false);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
 
   // Live calculations
   const totalMonthly = useMemo(() => {
@@ -209,7 +179,7 @@ function App() {
     const catNameMap: Record<string, string> = {
       groceries: 'groceries', gas: 'gas', dining: 'dining', online: 'online shopping',
       retail: 'retail', amazon: 'Amazon', bestbuy: 'Best Buy', walmart: 'Walmart',
-      jcpenney: 'JCPenney', ashley: 'Ashley', ae: 'AEO',
+      jcpenney: 'JCPenney', ashley: 'Ashley', ae: 'AEO', wholefoods: 'Whole Foods',
     };
     const friendlyCat = catNameMap[topCat] || 'everyday purchases';
 
@@ -234,6 +204,13 @@ function App() {
     return insightsList.slice(0, 3);
   }, [top3, totalAnnualSpend, spending]);
 
+  // Auto-scroll chat on new messages
+  useEffect(() => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    }
+  }, [chatMessages, isBotThinking]);
+
   // Toast helper
   const showToast = (message: string) => {
     const id = Date.now();
@@ -251,7 +228,8 @@ function App() {
 
   // Reset to sample
   const resetToSample = () => {
-    setSpending(DEFAULT_SPENDING);
+    setSpending(DEFAULT_BANK.spending);
+    setConnectedBankName(DEFAULT_BANK.name);
     showToast('Spending reset to realistic young adult sample');
   };
 
@@ -259,14 +237,14 @@ function App() {
   const applyPreset = (preset: 'balanced' | 'online' | 'essentials' | 'minimal') => {
     let newSpending: Spending;
     if (preset === 'online') {
-      newSpending = { ...DEFAULT_SPENDING, amazon: 280, online: 310, bestbuy: 90, gap: 55, ulta: 40, groceries: 240, dining: 130, ae: 45 };
+      newSpending = { ...DEFAULT_SPENDING, amazon: 280, online: 310, bestbuy: 90, gap: 55, ulta: 40, groceries: 240, dining: 130, ae: 45, wholefoods: 25 };
     } else if (preset === 'essentials') {
-      newSpending = { ...DEFAULT_SPENDING, groceries: 420, walmart: 120, gas: 160, sams: 95, dining: 110 };
+      newSpending = { ...DEFAULT_SPENDING, groceries: 420, walmart: 120, gas: 160, sams: 95, dining: 110, wholefoods: 15 };
     } else if (preset === 'minimal') {
       newSpending = {
         groceries: 200, gas: 70, dining: 90, online: 120, retail: 80, general: 55,
         amazon: 70, bestbuy: 25, walmart: 55, sams: 25, lowes: 15, verizon: 35, gap: 15, kohl: 15, ulta: 10,
-        jcpenney: 10, ashley: 15, ae: 15,
+        jcpenney: 10, ashley: 15, ae: 15, wholefoods: 10,
       };
     } else {
       newSpending = { ...DEFAULT_SPENDING };
@@ -280,17 +258,22 @@ function App() {
     setShowPlaidModal(true);
     setPlaidStep('select');
     setSelectedBank('');
+    setSelectedBankId('');
   };
 
   const closePlaid = () => {
     setShowPlaidModal(false);
     setPlaidStep('select');
     setSelectedBank('');
+    setSelectedBankId('');
     setIsConnecting(false);
   };
 
-  const selectBank = (bank: string) => {
-    setSelectedBank(bank);
+  const selectBank = (bankId: string) => {
+    const bank = getBankById(bankId);
+    if (!bank) return;
+    setSelectedBankId(bankId);
+    setSelectedBank(bank.name);
     setPlaidStep('connecting');
     setIsConnecting(true);
 
@@ -302,12 +285,106 @@ function App() {
   };
 
   const applyPlaidData = () => {
-    setSpending(DEFAULT_SPENDING);
+    const bank = selectedBankId ? getBankById(selectedBankId) : DEFAULT_BANK;
+    if (bank) {
+      // Real "backend" behavior: derive spending by aggregating the mock Plaid transaction history
+      const derivedSpending = deriveSpendingFromTransactions(bank.transactions);
+      setSpending(derivedSpending);
+      setConnectedBankName(bank.name);
+    }
     closePlaid();
-    showToast('Successfully imported your spending from connected accounts');
+    showToast(`Applied ${bank?.name || 'bank'} spending profile`);
   };
 
+  // Mock chatbot - returns realistic mock data / answers based on current profile
+  const getMockBotResponse = (question: string): string => {
+    const q = question.toLowerCase();
+
+    const topCard = top3[0];
+    const second = top3[1];
+    const totalSpend = totalMonthly;
+
+    if (q.includes('recommend') || q.includes('best') || q.includes('suggest')) {
+      return `For your ${connectedBankName} profile ($${totalSpend}/mo spend), the best card right now is the **${topCard.name}** — projected ~$${topCard.projected}/yr in rewards.\n\nRunner-up: ${second.name} ($${second.projected}/yr).`;
+    }
+    if (q.includes('amazon') || q.includes('whole foods')) {
+      return `Amazon Prime Store Card: 5% at Amazon & Whole Foods (Prime members).\nYour current: Amazon $${spending.amazon}/mo + Whole Foods $${spending.wholefoods}/mo.\n\nMock data: This could generate roughly $${Math.round((spending.amazon * 0.05 + spending.wholefoods * 0.05) * 12)} annually from those categories alone.`;
+    }
+    if (q.includes('gas') || q.includes('sams') || q.includes('bulk')) {
+      return `Sam's Club Mastercard often wins here: 5% on gas (capped) + 3% at Sam's.\nCurrent profile: Gas $${spending.gas}, Sam's $${spending.sams}.\n\nMock projection if using Sam's card: ~$${Math.round((spending.gas * 0.05 + spending.sams * 0.03) * 12)}/yr from gas + warehouse.`;
+    }
+    if (q.includes('spend') || q.includes('total') || q.includes('budget')) {
+      return `Your loaded monthly spend total is **$${totalSpend}**.\n\nBreakdown mock:\n• Groceries: $${spending.groceries}\n• Online + Amazon: $${spending.online + spending.amazon}\n• Retail + Fashion: $${spending.retail + spending.gap + spending.kohl + spending.ulta + spending.ae}\n\nAll cards shown have $0 fees.`;
+    }
+    if (q.includes('how') && (q.includes('reward') || q.includes('work') || q.includes('calculate'))) {
+      return `Simple formula: each dollar you spend is multiplied by the card's rate for that category/store (exact store match first).\n\nExample: Amazon card on $340 Amazon spend = $17/mo (5%). Everything else uses the 1% base in our demo model.`;
+    }
+    if (q.includes('plaid') || q.includes('bank') || q.includes('profile') || q.includes('connect')) {
+      return `We have 4 mock bank profiles you can load:\n• Chase Checking — heavy Amazon/online\n• Capital One — gas + Sam's bulk\n• Fashion Bank — Gap/Kohl's/Ulta/AE\n• Student Bank — balanced\n\nSwitching instantly re-ranks every card using the new spending data.`;
+    }
+    if (q.includes('transaction') || q.includes('history') || q.includes('mock data') || q.includes('data')) {
+      return `Here's mock transaction history for your current profile:\n\n• ~18–20 transactions this month\n• Biggest: Amazon (~$${spending.amazon})\n• Frequent: Walmart, gas stations, Target\n• Average ticket: ~$28\n\nIn a real integration this would come from Plaid.`;
+    }
+    if (q.includes('gap') || q.includes('fashion') || q.includes('kohl') || q.includes('ulta')) {
+      return `Fashion-focused cards (Gap Inc, Kohl's, Ulta, AEO) are great when you have dedicated spend there.\nYour current fashion-related: Gap $${spending.gap} + Kohl's $${spending.kohl} + Ulta $${spending.ulta} + AE $${spending.ae}.`;
+    }
+
+    // Default helpful mock responses
+    const defaults = [
+      `Got it! Right now your top match is the ${topCard.name} at ~$${topCard.projected} projected. Ask about a specific store or category for more mock data.`,
+      `This is a fully mocked demo chatbot. Try questions like "best card for gas", "what's my spending", "Amazon rewards", or "how do rewards work".`,
+      `Fun mock stat: Switching to the optimal card for your profile could earn you $${Math.max(40, Math.round((topCard.projected - totalSpend * 0.01)))} more per year than a basic 1% card.`
+    ];
+    return defaults[Math.floor(Math.random() * defaults.length)];
+  };
+
+  const sendChatMessage = (overrideText?: string) => {
+    const text = (overrideText || chatInput).trim();
+    if (!text || isBotThinking) return;
+
+    // Add user message
+    const userMessage = { role: 'user' as const, text };
+    setChatMessages(prev => [...prev, userMessage]);
+    setChatInput('');
+
+    // Simulate bot thinking + mock response
+    setIsBotThinking(true);
+    setTimeout(() => {
+      const botText = getMockBotResponse(text);
+      setChatMessages(prev => [...prev, { role: 'assistant', text: botText }]);
+      setIsBotThinking(false);
+    }, 650 + Math.random() * 550);
+  };
+
+  const toggleChat = () => {
+    const opening = !showChat;
+    setShowChat(opening);
+
+    if (opening && chatMessages.length === 0) {
+      setChatMessages([{
+        role: 'assistant',
+        text: "Hi! I'm the Synchrony Match demo assistant. I can answer questions about cards, your current spending profile, rewards math, or bank connections — all using mock data."
+      }]);
+    }
+  };
+
+  const clearChat = () => {
+    setChatMessages([]);
+    setChatInput('');
+  };
+
+  // Quick suggestion chips for easy demo interaction
+  const chatSuggestions = [
+    "Best card for me?",
+    "Show my spending breakdown",
+    "Amazon rewards?",
+    "Gas or Sam's card?",
+    "Mock transaction data",
+    "How do rewards work?"
+  ];
+
   // Card detail
+
   const openCardDetail = (card: Card) => {
     setSelectedCard(card);
   };
@@ -407,7 +484,7 @@ function App() {
             <div>
               <div className="flex items-center gap-2 mb-3">
                 <div className="badge badge-emerald">CONNECTED IN DEMO</div>
-                <div className="text-xs text-[#64748b]">Sample profile active</div>
+                <div className="text-xs text-[#64748b]">{connectedBankName} profile active</div>
               </div>
               <div className="text-4xl font-semibold tabular-nums tracking-tight text-[#0f172a] mb-1">
                 {formatCurrency(totalMonthly)} <span className="text-xl text-[#64748b] font-normal">/ month</span>
@@ -475,10 +552,10 @@ function App() {
                   <div key={key} className="spending-row flex items-center gap-3">
                     <div className="w-20 text-sm capitalize text-[#475569]">{key}</div>
                     <div className="flex-1 relative">
-                      <div className="absolute left-3 top-1/2 -mt-1.5 text-[#94a3b8] text-sm">$</div>
+                      <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[#94a3b8] text-sm pointer-events-none select-none">$</div>
                       <input
                         type="number"
-                        className="input pl-7 tabular-nums"
+                        className="input pl-11 tabular-nums"
                         value={spending[key]}
                         onChange={(e) => updateSpending(key, parseInt(e.target.value) || 0)}
                       />
@@ -496,10 +573,10 @@ function App() {
                   <div key={key} className="spending-row flex items-center gap-3">
                     <div className="w-20 text-sm capitalize text-[#475569]">{key}</div>
                     <div className="flex-1 relative">
-                      <div className="absolute left-3 top-1/2 -mt-1.5 text-[#94a3b8] text-sm">$</div>
+                      <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[#94a3b8] text-sm pointer-events-none select-none">$</div>
                       <input
                         type="number"
-                        className="input pl-7 tabular-nums"
+                        className="input pl-11 tabular-nums"
                         value={spending[key]}
                         onChange={(e) => updateSpending(key, parseInt(e.target.value) || 0)}
                       />
@@ -512,22 +589,22 @@ function App() {
             {/* Specific Stores */}
             <div className="xl:col-span-3">
               <div className="input-label mb-2.5">Specific stores you shop at</div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-x-4 gap-y-3">
+              <div className="grid grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-x-3 gap-y-3">
                 {(
                   [
-                    ['amazon', 'Amazon'], ['bestbuy', 'Best Buy'], ['walmart', 'Walmart'],
+                    ['amazon', 'Amazon'], ['wholefoods', 'Whole Foods'], ['bestbuy', 'Best Buy'], ['walmart', 'Walmart'],
                     ['sams', "Sam's"], ['lowes', "Lowe's"], ['verizon', 'Verizon'],
                     ['gap', 'Gap/OldNavy'], ['kohl', "Kohl's"], ['ulta', 'Ulta'],
                     ['jcpenney', 'JCPenney'], ['ashley', 'Ashley'], ['ae', 'AEO'],
                   ] as const
                 ).map(([key, label]) => (
-                  <div key={key} className="spending-row flex items-center gap-2">
-                    <div className="w-[78px] text-sm text-[#475569] truncate">{label}</div>
+                  <div key={key} className="spending-row flex items-center gap-1.5 min-w-[130px]">
+                    <div className="w-14 text-sm text-[#475569] truncate">{label}</div>
                     <div className="flex-1 relative">
-                      <div className="absolute left-3 top-1/2 -mt-1.5 text-[#94a3b8] text-sm">$</div>
+                      <div className="absolute left-3 top-1/2 -translate-y-1/2 text-[#94a3b8] text-sm pointer-events-none select-none">$</div>
                       <input
                         type="number"
-                        className="input pl-7 text-sm py-1.5 tabular-nums"
+                        className="input pl-8 text-sm py-1.5 tabular-nums min-w-[70px]"
                         value={spending[key]}
                         onChange={(e) => updateSpending(key, parseInt(e.target.value) || 0)}
                       />
@@ -777,20 +854,23 @@ function App() {
                   </div>
                 </div>
                 <div className="px-6 pb-6">
-                  <div className="text-sm mb-3 text-[#475569]">Choose a bank to securely import recent transactions:</div>
+                  <div className="text-sm mb-3 text-[#475569]">Choose a bank profile to load realistic spending data:</div>
                   <div className="space-y-2">
-                    {['Chase', 'Bank of America', 'Capital One', 'Wells Fargo', 'Citibank'].map((bank) => (
+                    {MOCK_BANKS.map((bank) => (
                       <button
-                        key={bank}
-                        onClick={() => selectBank(bank)}
-                        className="w-full text-left px-4 py-3 rounded-2xl border border-[#e2e8f0] hover:bg-[#f8fafc] hover:border-[#cbd5e1] flex items-center justify-between transition"
+                        key={bank.id}
+                        onClick={() => selectBank(bank.id)}
+                        className="w-full text-left px-4 py-3 rounded-2xl border border-[#e2e8f0] hover:bg-[#f8fafc] hover:border-[#cbd5e1] flex items-center justify-between transition group"
                       >
-                        <span>{bank}</span>
-                        <ArrowRight className="w-4 h-4 text-[#94a3b8]" />
+                        <div>
+                          <div className="font-medium text-[#0f172a]">{bank.name}</div>
+                          <div className="text-xs text-[#64748b]">{bank.tagline}</div>
+                        </div>
+                        <ArrowRight className="w-4 h-4 text-[#94a3b8] group-hover:translate-x-0.5 transition" />
                       </button>
                     ))}
                   </div>
-                  <div className="text-[11px] text-center mt-5 text-[#94a3b8]">Your data is never stored. This is a simulation.</div>
+                  <div className="text-[11px] text-center mt-5 text-[#94a3b8]">Demo only — selecting loads a different spending profile and updates recommendations live.</div>
                 </div>
               </>
             )}
@@ -810,15 +890,22 @@ function App() {
                 </div>
                 <div className="text-center">
                   <div className="font-semibold text-xl">Connection successful</div>
-                  <p className="text-[#475569] mt-1 text-sm">We found transactions across your categories.</p>
+                  <p className="text-[#475569] mt-1 text-sm">Loaded spending profile from {selectedBank || 'your bank'}.</p>
                 </div>
 
                 <div className="bg-[#f8fafc] rounded-2xl p-4 mt-6 text-sm">
-                  <div className="font-medium mb-1">Imported categories</div>
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[#475569] text-sm">
-                    <div>Groceries • Gas • Dining</div>
-                    <div>Online • Retail • Specific stores</div>
+                  <div className="font-medium mb-1">Mock Plaid transaction history imported</div>
+                  <div className="text-[#475569] text-sm mb-2">
+                    Aggregated by merchant &amp; category. Store-specific spend powers PLCC recommendations.
                   </div>
+                  {(() => {
+                    const b = selectedBankId ? getBankById(selectedBankId) : null;
+                    return b ? (
+                      <div className="text-[12px] text-[#64748b]">
+                        Sample merchants: {getSampleMerchants(b, 3)}
+                      </div>
+                    ) : null;
+                  })()}
                 </div>
 
                 <div className="flex gap-3 mt-6">
@@ -902,6 +989,125 @@ function App() {
           </div>
         ))}
       </div>
+
+      {/* FLOATING CHATBOT — bottom-right, returns mock data */}
+      {/* Launch button */}
+      <button
+        onClick={toggleChat}
+        className={`fixed bottom-5 right-5 z-[90] flex h-14 w-14 items-center justify-center rounded-full shadow-xl transition-all active:scale-[0.96] ${
+          showChat ? 'hidden' : 'bg-[#FBC600] text-[#1F2937] hover:shadow-2xl'
+        }`}
+        aria-label="Open Synchrony demo assistant"
+      >
+        <MessageCircle className="h-7 w-7" />
+      </button>
+
+      {/* Chat panel */}
+      {showChat && (
+        <div className="fixed bottom-4 right-4 z-[95] flex h-[460px] w-[92vw] max-w-[340px] flex-col overflow-hidden rounded-3xl border border-[#e2e8f0] bg-white shadow-2xl sm:w-[360px]">
+          {/* Header */}
+          <div className="flex items-center justify-between border-b bg-[#0f172a] px-4 py-3 text-white">
+            <div className="flex items-center gap-2">
+              <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[#FBC600]/90 text-[#1F2937]">
+                <Bot className="h-4 w-4" />
+              </div>
+              <div>
+                <div className="text-sm font-semibold">Synchrony Assistant</div>
+                <div className="text-[10px] text-[#94a3b8]">Demo • mock responses only</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={clearChat}
+                className="rounded-full px-2 py-1 text-xs text-[#94a3b8] hover:text-white active:bg-white/10"
+                title="Clear chat"
+              >
+                Clear
+              </button>
+              <button onClick={() => setShowChat(false)} className="text-[#94a3b8] hover:text-white" aria-label="Close chat">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Messages */}
+          <div ref={chatContainerRef} className="flex-1 space-y-3 overflow-y-auto bg-[#f8fafc] p-3 text-sm">
+            {chatMessages.length === 0 && (
+              <div className="rounded-2xl bg-white p-3 text-center text-[#64748b] text-xs border">
+                Ask about cards, your spending, or rewards.<br />Everything below is simulated mock data.
+              </div>
+            )}
+
+            {chatMessages.map((msg, idx) => (
+              <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div
+                  className={`max-w-[82%] rounded-2xl px-3.5 py-2 whitespace-pre-wrap leading-snug ${
+                    msg.role === 'user'
+                      ? 'bg-[#0f172a] text-white rounded-br-none'
+                      : 'bg-white text-[#334155] border border-[#e2e8f0] rounded-bl-none'
+                  }`}
+                >
+                  {msg.text}
+                </div>
+              </div>
+            ))}
+
+            {isBotThinking && (
+              <div className="flex justify-start">
+                <div className="rounded-2xl bg-white border border-[#e2e8f0] px-3.5 py-2 text-[#64748b] text-xs flex items-center gap-1.5">
+                  <div className="flex gap-0.5">
+                    <span className="animate-pulse">●</span>
+                    <span className="animate-pulse delay-150">●</span>
+                    <span className="animate-pulse delay-300">●</span>
+                  </div>
+                  thinking…
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Quick suggestions */}
+          {!isBotThinking && (
+            <div className="flex flex-wrap gap-1.5 border-t bg-white px-3 py-2">
+              {chatSuggestions.slice(0, 4).map((s, i) => (
+                <button
+                  key={i}
+                  onClick={() => sendChatMessage(s)}
+                  className="rounded-full border border-[#e2e8f0] bg-[#f8fafc] px-2.5 py-0.5 text-[11px] text-[#475569] hover:bg-[#FBC600] hover:text-[#1F2937] hover:border-[#FBC600] transition"
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Input */}
+          <div className="border-t bg-white p-2">
+            <div className="flex items-center gap-2 rounded-2xl border border-[#e2e8f0] bg-[#f8fafc] px-2 py-1.5">
+              <input
+                type="text"
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') sendChatMessage();
+                }}
+                placeholder="Ask about cards, rewards, or your profile…"
+                className="flex-1 bg-transparent px-2 text-sm outline-none placeholder:text-[#94a3b8]"
+                disabled={isBotThinking}
+              />
+              <button
+                onClick={() => sendChatMessage()}
+                disabled={!chatInput.trim() || isBotThinking}
+                className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#FBC600] text-[#1F2937] disabled:opacity-40 disabled:cursor-not-allowed"
+                aria-label="Send message"
+              >
+                <Send className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="mt-1 text-center text-[10px] text-[#94a3b8]">Mock data only — no real AI or data leaves your browser</div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
