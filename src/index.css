@@ -158,7 +158,8 @@ h1, h2, h3 {
 
 .badge-teal {
   background: var(--accent-light);
-  color: var(--accent);
+  border: 1px solid var(--accent);
+  color: var(--text-h);
 }
 
 .badge-emerald {
@@ -172,13 +173,13 @@ h1, h2, h3 {
 }
 
 .rewards-pill {
-  background: #f8fafc;
-  border: 1px solid var(--border);
+  background: var(--accent-light);
+  border: 1px solid var(--accent);
   padding: 0.125rem 0.625rem;
   border-radius: 999px;
   font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--accent);
+  font-weight: 700;
+  color: var(--text-h);
 }
 
 .modal {
